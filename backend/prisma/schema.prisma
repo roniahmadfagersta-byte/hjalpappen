@@ -1,0 +1,509 @@
+// Prisma schema for Marknadsplats - Swedish Marketplace
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ──────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  YOUTH
+  CUSTOMER
+  BUSINESS
+  ADMIN
+}
+
+enum TaskStatus {
+  DRAFT
+  OPEN
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  DISPUTED
+}
+
+enum ApplicationStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  SWISH
+  STRIPE
+  BANK_TRANSFER
+  INVOICE
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum NotificationType {
+  TASK_APPLICATION
+  TASK_ASSIGNED
+  TASK_COMPLETED
+  PAYMENT_RECEIVED
+  PAYMENT_SENT
+  NEW_MESSAGE
+  NEW_REVIEW
+  SYSTEM
+  PROMOTION
+}
+
+enum AdStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  EXPIRED
+  ARCHIVED
+}
+
+enum ProspectStatus {
+  LEAD
+  CONTACTED
+  MEETING_BOOKED
+  PROPOSAL_SENT
+  NEGOTIATION
+  WON
+  LOST
+}
+
+enum VerificationStatus {
+  UNVERIFIED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+// ─── Models ─────────────────────────────────────────────────────────────────
+
+model User {
+  id                   String             @id @default(uuid())
+  email                String             @unique
+  passwordHash         String?
+  firstName            String
+  lastName             String
+  phone                String?            @unique
+  phoneVerified        Boolean            @default(false)
+  avatarUrl            String?
+  bio                  String?
+  role                 UserRole           @default(CUSTOMER)
+  dateOfBirth          DateTime?
+  address              String?
+  city                 String?
+  postalCode           String?
+  county               String?            // Swedish "län"
+  latitude             Float?
+  longitude            Float?
+  isActive             Boolean            @default(true)
+  isEmailVerified      Boolean            @default(false)
+  verificationStatus   VerificationStatus @default(UNVERIFIED)
+  twoFactorEnabled     Boolean            @default(false)
+  twoFactorSecret      String?
+  googleId             String?            @unique
+  averageRating        Float              @default(0)
+  totalReviews         Int                @default(0)
+  completedTasksCount  Int                @default(0)
+  passwordResetToken   String?
+  passwordResetExpires DateTime?
+  otpCode              String?
+  otpExpires           DateTime?
+  lastLoginAt          DateTime?
+  gdprConsentAt        DateTime?
+  gdprDataExportedAt   DateTime?
+  deletionRequestedAt  DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  // Relations
+  skills            UserSkill[]
+  createdTasks      Task[]              @relation("TaskCreator")
+  assignedTasks     Task[]              @relation("TaskAssignee")
+  applications      TaskApplication[]
+  reviewsGiven      Review[]            @relation("ReviewAuthor")
+  reviewsReceived   Review[]            @relation("ReviewTarget")
+  paymentsSent      Payment[]           @relation("PaymentPayer")
+  paymentsReceived  Payment[]           @relation("PaymentPayee")
+  invoicesSent      Invoice[]           @relation("InvoiceSender")
+  invoicesReceived  Invoice[]           @relation("InvoiceReceiver")
+  chatParticipants  ChatParticipant[]
+  messages          ChatMessage[]
+  notifications     Notification[]
+  advertisements    Advertisement[]
+  companyProspects  CompanyProspect[]   @relation("ProspectOwner")
+
+  @@index([email])
+  @@index([role])
+  @@index([city])
+  @@index([latitude, longitude])
+  @@map("users")
+}
+
+model Skill {
+  id          String      @id @default(uuid())
+  name        String      @unique
+  slug        String      @unique
+  category    String
+  description String?
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Relations
+  userSkills  UserSkill[]
+  tasks       Task[]      @relation("TaskSkills")
+
+  @@index([category])
+  @@index([slug])
+  @@map("skills")
+}
+
+model UserSkill {
+  id              String   @id @default(uuid())
+  userId          String
+  skillId         String
+  experienceYears Int?
+  description     String?
+  createdAt       DateTime @default(now())
+
+  // Relations
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skill Skill @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, skillId])
+  @@map("user_skills")
+}
+
+model Task {
+  id               String        @id @default(uuid())
+  title            String
+  description      String
+  status           TaskStatus    @default(DRAFT)
+  budgetMin        Float?
+  budgetMax        Float?
+  finalPrice       Float?
+  currency         String        @default("SEK")
+  address          String?
+  city             String?
+  postalCode       String?
+  county           String?
+  latitude         Float?
+  longitude        Float?
+  radiusKm         Float?        // How far the worker should be willing to travel
+  isRemote         Boolean       @default(false)
+  startDate        DateTime?
+  endDate          DateTime?
+  deadline         DateTime?
+  urgencyLevel     Int           @default(1) // 1-5
+  viewCount        Int           @default(0)
+  applicationCount Int           @default(0)
+  aiMatchScore     Float?        // AI-computed relevance
+  aiPriceSuggestion Float?       // AI-suggested price
+  creatorId        String
+  assigneeId       String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  completedAt      DateTime?
+  cancelledAt      DateTime?
+
+  // Relations
+  creator      User              @relation("TaskCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  assignee     User?             @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  skills       Skill[]           @relation("TaskSkills")
+  applications TaskApplication[]
+  reviews      Review[]
+  payments     Payment[]
+  chatRoom     ChatRoom?
+
+  @@index([status])
+  @@index([city])
+  @@index([latitude, longitude])
+  @@index([creatorId])
+  @@index([assigneeId])
+  @@index([createdAt])
+  @@map("tasks")
+}
+
+model TaskApplication {
+  id           String            @id @default(uuid())
+  taskId       String
+  applicantId  String
+  coverLetter  String?
+  proposedPrice Float?
+  status       ApplicationStatus @default(PENDING)
+  aiMatchScore Float?            // How well applicant matches task
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  respondedAt  DateTime?
+
+  // Relations
+  task      Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  applicant User @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, applicantId])
+  @@index([taskId])
+  @@index([applicantId])
+  @@index([status])
+  @@map("task_applications")
+}
+
+model Review {
+  id              String   @id @default(uuid())
+  taskId          String
+  authorId        String
+  targetId        String
+  rating          Int      // 1-5
+  title           String?
+  comment         String?
+  qualityRating   Int?     // 1-5
+  reliabilityRating Int?   // 1-5
+  communicationRating Int? // 1-5
+  isFraudSuspected Boolean @default(false)
+  fraudScore       Float?  // AI fraud detection score 0-1
+  fraudReason      String? // AI explanation for fraud flag
+  isPublic         Boolean @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relations
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author User @relation("ReviewAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  target User @relation("ReviewTarget", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, authorId])
+  @@index([targetId])
+  @@index([rating])
+  @@map("reviews")
+}
+
+model Payment {
+  id                String        @id @default(uuid())
+  taskId            String
+  payerId           String
+  payeeId           String
+  amount            Float
+  platformFee       Float         // Commission amount
+  commissionRate    Float         @default(0.10) // 10% default
+  netAmount         Float         // Amount after commission
+  currency          String        @default("SEK")
+  method            PaymentMethod @default(SWISH)
+  status            PaymentStatus @default(PENDING)
+  externalPaymentId String?       // Stripe/Swish transaction ID
+  description       String?
+  paidAt            DateTime?
+  failedAt          DateTime?
+  refundedAt        DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  // Relations
+  task    Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  payer   User     @relation("PaymentPayer", fields: [payerId], references: [id])
+  payee   User     @relation("PaymentPayee", fields: [payeeId], references: [id])
+  invoice Invoice?
+
+  @@index([taskId])
+  @@index([payerId])
+  @@index([payeeId])
+  @@index([status])
+  @@map("payments")
+}
+
+model Invoice {
+  id             String        @id @default(uuid())
+  invoiceNumber  String        @unique
+  paymentId      String        @unique
+  senderId       String
+  receiverId     String
+  amount         Float
+  vatRate        Float         @default(0.25) // Swedish VAT 25%
+  vatAmount      Float
+  totalAmount    Float
+  currency       String        @default("SEK")
+  status         InvoiceStatus @default(DRAFT)
+  issuedAt       DateTime      @default(now())
+  dueDate        DateTime
+  paidAt         DateTime?
+  description    String?
+  senderName     String
+  senderAddress  String?
+  senderOrgNr    String?       // Swedish org number
+  receiverName   String
+  receiverAddress String?
+  receiverOrgNr  String?
+  pdfUrl         String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  // Relations
+  payment  Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  sender   User    @relation("InvoiceSender", fields: [senderId], references: [id])
+  receiver User    @relation("InvoiceReceiver", fields: [receiverId], references: [id])
+
+  @@index([senderId])
+  @@index([receiverId])
+  @@index([status])
+  @@map("invoices")
+}
+
+model ChatRoom {
+  id          String   @id @default(uuid())
+  taskId      String?  @unique
+  name        String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  task         Task?             @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  participants ChatParticipant[]
+  messages     ChatMessage[]
+
+  @@map("chat_rooms")
+}
+
+model ChatParticipant {
+  id         String    @id @default(uuid())
+  chatRoomId String
+  userId     String
+  joinedAt   DateTime  @default(now())
+  leftAt     DateTime?
+  lastReadAt DateTime?
+  isActive   Boolean   @default(true)
+
+  // Relations
+  chatRoom ChatRoom @relation(fields: [chatRoomId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([chatRoomId, userId])
+  @@map("chat_participants")
+}
+
+model ChatMessage {
+  id         String   @id @default(uuid())
+  chatRoomId String
+  senderId   String
+  content    String
+  isRead     Boolean  @default(false)
+  isEdited   Boolean  @default(false)
+  isDeleted  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relations
+  chatRoom ChatRoom @relation(fields: [chatRoomId], references: [id], onDelete: Cascade)
+  sender   User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([chatRoomId])
+  @@index([senderId])
+  @@index([createdAt])
+  @@map("chat_messages")
+}
+
+model Advertisement {
+  id            String   @id @default(uuid())
+  title         String
+  description   String?
+  imageUrl      String?
+  targetUrl     String?
+  advertiserId  String
+  status        AdStatus @default(DRAFT)
+  // Geo-targeting
+  targetCities  String[] // Array of city names
+  targetCounties String[] // Array of county names
+  targetLatitude  Float?
+  targetLongitude Float?
+  targetRadiusKm  Float?
+  // Budget
+  dailyBudget   Float?
+  totalBudget   Float?
+  spentAmount   Float    @default(0)
+  currency      String   @default("SEK")
+  // Metrics
+  impressions   Int      @default(0)
+  clicks        Int      @default(0)
+  ctr           Float    @default(0) // Click-through rate
+  // Schedule
+  startsAt      DateTime?
+  endsAt        DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  advertiser User @relation(fields: [advertiserId], references: [id], onDelete: Cascade)
+
+  @@index([advertiserId])
+  @@index([status])
+  @@index([targetLatitude, targetLongitude])
+  @@map("advertisements")
+}
+
+model CompanyProspect {
+  id              String         @id @default(uuid())
+  companyName     String
+  orgNumber       String?        // Swedish org number
+  contactName     String?
+  contactEmail    String?
+  contactPhone    String?
+  website         String?
+  industry        String?
+  city            String?
+  county          String?
+  status          ProspectStatus @default(LEAD)
+  notes           String?
+  estimatedValue  Float?
+  currency        String         @default("SEK")
+  nextFollowUp    DateTime?
+  ownerId         String
+  source          String?        // Where the lead came from
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  convertedAt     DateTime?
+
+  // Relations
+  owner User @relation("ProspectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId])
+  @@index([status])
+  @@index([companyName])
+  @@map("company_prospects")
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String
+  data      Json?            // Arbitrary JSON payload
+  isRead    Boolean          @default(false)
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
