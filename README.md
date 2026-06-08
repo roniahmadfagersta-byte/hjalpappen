@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # 🏪 Marknadsplats – Tjänsteplattform
 
 En komplett marknadsplats där ungdomar, privatpersoner och företag kan köpa och sälja tjänster lokalt. Plattformen matchar rätt person till rätt uppdrag med hjälp av AI, geolokalisering och ett intuitivt gränssnitt.
@@ -107,3 +108,7 @@ docker-compose up -d
 ## 📄 Licens
 
 Proprietär – Alla rättigheter förbehållna.
+=======
+# hjalpappen
+hjälp
+>>>>>>> 760598aefb47a210532eb1b6da2b029ee5091fda
